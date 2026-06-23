@@ -7,34 +7,50 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"octopus/infostructure/security"
 )
 
 type Server struct {
 	addr    string
 	logPath string
 	mu      sync.Mutex
-	guard   *Guard
+	guard   *security.Guard
 }
 
 func New(addr, logPath string) *Server {
 	return &Server{
 		addr:    addr,
 		logPath: logPath,
-		guard:   NewGuard(5),
+		guard:   security.NewGuard(5),
 	}
 }
 
 func (s *Server) Run() error {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/log", s.handleLog)
 	mux.HandleFunc("/logs", s.handleLogs)
-
 	mux.HandleFunc("/block", s.handleBlock)
 
-	protectedHandler := s.guard.LimitAndCheck(s, mux)
+	protectedHandler := s.guard.LimitAndCheck(s.append, mux)
 
 	return http.ListenAndServe(s.addr, protectedHandler)
+}
+
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = w.Write([]byte("Logger server available endpoints:\n" +
+		"GET / - show this help page\n" +
+		"POST /log - submit a log entry\n" +
+		"GET /logs - read the log file\n" +
+		"POST /block?ip=<address> - blacklist an IP\n"))
 }
 
 func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +101,7 @@ func (s *Server) handleBlock(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.guard.BlockIP(ipToBlock)
-	_ = s.append("[SECURITY] Manually blacklisted IP: " + ipToBlock)
+	_ = s.append("blacklisted ip: " + ipToBlock)
 
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("IP " + ipToBlock + " has been blacklisted"))

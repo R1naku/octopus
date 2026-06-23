@@ -1,4 +1,4 @@
-package logger
+package security
 
 import (
 	"net/http"
@@ -27,12 +27,16 @@ func NewGuard(maxReqsPerSecond int) *Guard {
 	}
 }
 
-func (g *Guard) LimitAndCheck(s *Server, next http.Handler) http.Handler {
+func New(maxReqsPerSecond int) *Guard {
+	return NewGuard(maxReqsPerSecond)
+}
+
+func (g *Guard) LimitAndCheck(logFn func(string) error, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := extractIP(r.RemoteAddr)
 
 		g.mu.Lock()
-		
+
 		if g.blacklist[ip] {
 			g.mu.Unlock()
 			http.Error(w, "ip is blacklisted", http.StatusForbidden)
@@ -56,7 +60,9 @@ func (g *Guard) LimitAndCheck(s *Server, next http.Handler) http.Handler {
 		g.mu.Unlock()
 
 		if client.count > g.maxReqs {
-			_ = s.append("" + ip + "limit")
+			if logFn != nil {
+				_ = logFn(ip + " limit")
+			}
 			http.Error(w, "too many requests.", http.StatusTooManyRequests)
 			return
 		}
