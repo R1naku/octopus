@@ -13,16 +13,28 @@ type Server struct {
 	addr    string
 	logPath string
 	mu      sync.Mutex
+	guard   *Guard
 }
 
 func New(addr, logPath string) *Server {
-	return &Server{addr: addr, logPath: logPath}
+	return &Server{
+		addr:    addr,
+		logPath: logPath,
+		guard:   NewGuard(5),
+	}
 }
 
 func (s *Server) Run() error {
-	http.HandleFunc("/log", s.handleLog)
-	http.HandleFunc("/logs", s.handleLogs)
-	return http.ListenAndServe(s.addr, nil)
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/log", s.handleLog)
+	mux.HandleFunc("/logs", s.handleLogs)
+
+	mux.HandleFunc("/block", s.handleBlock)
+
+	protectedHandler := s.guard.LimitAndCheck(s, mux)
+
+	return http.ListenAndServe(s.addr, protectedHandler)
 }
 
 func (s *Server) handleLog(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +69,26 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write(data)
+	_, _ = w.Write(data)
+}
+
+func (s *Server) handleBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "use POST", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ipToBlock := r.URL.Query().Get("ip")
+	if ipToBlock == "" {
+		http.Error(w, "missing ip parameter", http.StatusBadRequest)
+		return
+	}
+
+	s.guard.BlockIP(ipToBlock)
+	_ = s.append("[SECURITY] Manually blacklisted IP: " + ipToBlock)
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("IP " + ipToBlock + " has been blacklisted"))
 }
 
 func (s *Server) append(line string) error {
