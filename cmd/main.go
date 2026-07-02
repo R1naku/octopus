@@ -7,6 +7,7 @@ import (
 	"octopus/infostructure/logger"
 	"octopus/infostructure/security"
 	"octopus/infostructure/server"
+	"octopus/internal/service"
 )
 
 func main() {
@@ -26,4 +27,8 @@ func main() {
 
 	secGuard := security.New(5)
 	_ = secGuard
+}
+
+func printInternalConfig() {
+	fmt.Println(service.LocalHost)
 }
